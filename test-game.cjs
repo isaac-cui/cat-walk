@@ -88,4 +88,18 @@ assert.equal(run('level.fragile.length'),1);
 assert.equal(run('fish.length'),1);
 assert.ok(run('level.check < level.fragile[0]'),'Save before teaching bridge');
 assert.equal(run('level.saw'),null);
-run('draw()');console.log('PASS: routes, checkpoint, pause, variable jump, multitouch, bridge rescue and lesson budget');
+for(const [width,height] of [[1140,641],[844,300],[350,263]]){
+  run(`canvas.getBoundingClientRect=()=>({width:${width},height:${height}});resizeView();start(0);`);
+  assert.ok(run('camera.w')<960,'Camera must show a closer view');
+  for(const [x,y] of [[25,420],[415,375],[620,355],[640,445],[900,335]]){
+    run(`cat.x=${x};cat.y=${y};cat.ground=true;cat.vx=0;for(let i=0;i<90;i++)updateCamera(STEP)`);
+    assert.ok(run('camera.x>=0 && camera.x+camera.w<=W+.01'),'Horizontal world bounds');
+    assert.ok(run('cat.x>=camera.x && cat.x+cat.w<=camera.x+camera.w'),'Cat stays in view');
+    assert.ok(run('cat.y>=camera.y && cat.y+cat.h<=camera.y+camera.h'),'Feet stay in view');
+    run('cat.ground=false;cat.y-=116;updateCamera(STEP)');
+    assert.ok(run('cat.y>=camera.y'),'Jump apex stays visible');
+  }
+  run('checkpoint=level.check;spawn()');
+  assert.ok(run('cat.x>=camera.x && cat.x+cat.w<=camera.x+camera.w'),'Respawn resets camera');
+}
+run('draw()');console.log('PASS: gameplay, bridge rescue, multitouch, camera at desktop/landscape/portrait sizes');

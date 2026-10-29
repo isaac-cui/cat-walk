@@ -3,6 +3,28 @@
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
 const $ = id => document.getElementById(id);
 const W = 960, H = 540, STEP = 1 / 120;
+const camera={x:0,y:0,w:640,h:360,groundY:450,snap:true,pixelWidth:960,pixelHeight:540};
+function resizeView(){
+  const rect=canvas.getBoundingClientRect?.();
+  if(!rect?.width||!rect?.height)return;
+  const aspect=rect.width/rect.height;
+  camera.w=rect.width<600?370:rect.width<1000?560:640;
+  camera.h=Math.min(H,camera.w/aspect);
+  // Preserve the visible field in very tall layouts.
+  camera.w=camera.h*aspect;
+  const ratio=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=Math.round(rect.width*ratio);canvas.height=Math.round(rect.height*ratio);
+  camera.pixelWidth=canvas.width;camera.pixelHeight=canvas.height;camera.snap=true;
+}
+function updateCamera(dt){
+  if(cat.ground)camera.groundY=cat.y+cat.h;
+  const targetX=Math.max(0,Math.min(W-camera.w,cat.x+cat.w/2-camera.w*.4+cat.vx*.1));
+  const targetY=Math.max(0,Math.min(H-camera.h,camera.groundY-camera.h*.74));
+  const ease=camera.snap?1:1-Math.exp(-dt*8);
+  camera.x+=(targetX-camera.x)*ease;camera.y+=(targetY-camera.y)*ease;camera.snap=false;
+  // Keep the cat visible during a drop or an unusually narrow viewport.
+  camera.y=Math.max(0,Math.min(H-camera.h,Math.max(cat.y+cat.h-camera.h*.92,Math.min(camera.y,cat.y-16))));
+}
 const LEVELS = [
   { name:'慢慢学会出发', hint:'先试着跳过前面的小缺口。轻按小跳，按住大跳。', palette:['#eee6c9','#bacbb0','#7a9d85'],
     boards:[[0,450,180],[215,430,125],[375,405,170],[585,385,115],[735,420,85],[860,365,100],[555,475,165]],
@@ -63,6 +85,7 @@ function spawn(){
   Object.assign(cat,{x:p.x+25,y:p.y-cat.h,vx:0,vy:0,ground:true,face:1});
   for(const b of boards)b.crack=-1;
   clearInput();coyote=.1;deathDelay=0;landing=0;lastFallWasBridge=false;
+  camera.groundY=p.y;camera.snap=true;updateCamera(0);
 }
 function loadLevel(i){
   levelIndex=i;level=LEVELS[i];checkpoint=-1;time=0;fakeTriggered=false;lessonSeen=new Set();
@@ -202,7 +225,10 @@ function drawCat(){
   ctx.restore();
 }
 function draw(){
-  ctx.drawImage(background,0,0);ctx.save();
+  ctx.setTransform(camera.pixelWidth/camera.w,0,0,camera.pixelHeight/camera.h,0,0);
+  ctx.clearRect(0,0,camera.w,camera.h);
+  ctx.save();ctx.translate(-camera.x,-camera.y);
+  ctx.drawImage(background,0,0);
   if(shake)ctx.translate(Math.sin(time*90)*shake,Math.cos(time*70)*shake*.5);
   // Tiny drifting pollen is decorative; collision surfaces stay perfectly stable.
   for(let i=0;i<18;i++)oval(ctx,(i*83+time*5)%W,90+(i*41)%340+Math.sin(time+i)*6,1.3,1.3,'#f7edcb');
@@ -264,5 +290,8 @@ for(const b of document.querySelectorAll('[data-key]')){
   b.addEventListener('contextmenu',e=>e.preventDefault());
   for(const type of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(type,e=>touchUp(e.pointerId));
 }
-function loop(t){const dt=Math.min(.05,(t-last)/1000||0);last=t;accumulator+=dt;while(accumulator>=STEP){update(STEP);accumulator-=STEP;}draw();requestAnimationFrame(loop);}
+window.addEventListener('resize',resizeView);
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(resizeView).observe(canvas);
+function loop(t){const dt=Math.min(.05,(t-last)/1000||0);last=t;accumulator+=dt;while(accumulator>=STEP){update(STEP);accumulator-=STEP;}if(state==='play'||camera.snap)updateCamera(dt);draw();requestAnimationFrame(loop);}
+resizeView();
 loadLevel(unlocked);updateSound();$('primary').textContent=unlocked?'继续第 '+(unlocked+1)+' 关 →':'出发吧 →';$('secondary').hidden=!unlocked;requestAnimationFrame(loop);
