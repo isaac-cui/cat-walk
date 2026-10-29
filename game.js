@@ -2,7 +2,8 @@
 // World units are independent of CSS pixels. Physics runs at a fixed 120 Hz.
 const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
 const $ = id => document.getElementById(id);
-const W = 960, H = 540, STEP = 1 / 120;
+let W = 960;
+const H = 540, STEP = 1 / 120;
 const camera={x:0,y:0,w:640,h:360,groundY:450,snap:true,pixelWidth:960,pixelHeight:540};
 function resizeView(){
   const rect=canvas.getBoundingClientRect?.();
@@ -25,7 +26,7 @@ function updateCamera(dt){
   // Keep the cat visible during a drop or an unusually narrow viewport.
   camera.y=Math.max(0,Math.min(H-camera.h,Math.max(cat.y+cat.h-camera.h*.92,Math.min(camera.y,cat.y-16))));
 }
-const LEVELS = [
+const SEGMENTS = [
   { name:'慢慢学会出发', hint:'先试着跳过前面的小缺口。轻按小跳，按住大跳。', palette:['#eee6c9','#bacbb0','#7a9d85'],
     boards:[[0,450,180],[215,430,125],[375,405,170],[585,385,115],[735,420,85],[860,365,100],[555,475,165]],
     fragile:[3], crumbleDelay:1.15, check:2, exit:5, rescue:6,
@@ -83,34 +84,98 @@ const NEW_CHAPTERS=[
   ]}
 ];
 for(const chapter of NEW_CHAPTERS)for(const [name,layout,traits,hint] of chapter.stages){
-  LEVELS.push({name,hint,scene:chapter.scene,palette:chapter.palette,boards:layout,fragile:[],check:2,
+  SEGMENTS.push({name,hint,scene:chapter.scene,palette:chapter.palette,boards:layout,fragile:[],check:2,
     fish:[[layout[1][0]+55,layout[1][1]-42],[layout[4][0]+45,layout[4][1]-42]],thorns:[],saw:null,...traits});
 }
-function worldIndex(i=levelIndex){return Math.floor(i/8);}
+const MERGE_PLAN=[
+  ['林间初行',[0,1]],['石阶与果园',[3,4,2]],['晚灯归途',[5,6,7]],
+  ['海风栈道',[8,9,10]],['停船与高桥',[11,12,13]],['渡口晚风',[14,15]],
+  ['月光与薄霜',[16,17,18]],['会走的屋瓦',[19,20]],['屋脊归家',[21,22,23]]
+];
+// Compose authored encounters into one continuous world. Connector steps always
+// have small gaps and descend gradually, keeping the original jump distances.
+function mergeLevel(name,sources){
+  const first=SEGMENTS[sources[0]],out={name,palette:first.palette,scene:first.scene,hint:first.hint,
+    boards:[],traits:[],fish:[],thorns:[],saws:[],winds:[],sections:[],checks:[],route:[],routeNext:{},sources};
+  let offset=0;
+  for(const source of sources){
+    const s=SEGMENTS[source],base=out.boards.length,exit=s.exit??s.boards.length-1;
+    out.sections.push({x:offset,name:s.name,hint:s.hint,source,board:base});
+    for(let i=0;i<s.boards.length;i++){
+      const [x,y,w]=s.boards[i];out.boards.push([x+offset,y,w]);
+      out.traits.push({fragile:s.fragile.includes(i),spring:s.spring?.includes(i),ice:s.ice?.includes(i),belt:s.belts?.[i]||0,
+        delay:s.crumbleDelay??.65,source,local:i});
+    }
+    out.route.push(...Array.from({length:exit+1},(_,i)=>base+i));
+    if(s.rescue!==undefined)out.routeNext[base+s.rescue]=base+4;
+    if(s.boards.length>exit+1&&s.rescue===undefined)out.routeNext[base+exit+1]=base+3;
+    out.checks.push(base+s.check);
+    if(source!==sources[0])out.checks.push(base);
+    out.fish.push(...s.fish.map(([x,y])=>[x+offset,y]));
+    out.thorns.push(...s.thorns.map(([x,y,w])=>[x+offset,y,w]));
+    if(s.saw)out.saws.push({...s.saw,x:s.saw.x+offset,anchor:(s.saw.x+offset)});
+    if(s.wind)out.winds.push({from:offset+320,to:offset+730,speed:s.wind});
+    if(source===0)out.rescue=base+s.rescue;
+    const end=out.boards[base+exit];
+    let edge=end[0]+end[2],y=end[1];
+    if(source!==sources[sources.length-1]){
+      while(450-y>60){
+        y+=55;const index=out.boards.length;
+        out.boards.push([edge+35,y,110]);out.traits.push({source:-1});
+        out.route.push(index);edge+=145;
+      }
+      offset=edge+35;
+    }else out.exit=base+exit;
+  }
+  for(let i=0;i<out.route.length-1;i++)out.routeNext[out.route[i]]=out.route[i+1];
+  out.width=out.boards[out.exit][0]+out.boards[out.exit][2];
+  out.check=out.checks[0];return out;
+}
+const LEVELS=MERGE_PLAN.map(([name,sources])=>mergeLevel(name,sources));
+function worldIndex(i=levelIndex){return Math.floor(i/3);}
 function world(){return WORLDS[worldIndex()];}
 let keys = new Set(), levelIndex=0, level, boards, fish, checkpoint=-1, deaths=0, elapsed=0;
 let state='menu', time=0, deathDelay=0, buffer=0, coyote=0, jumpHeld=false, accumulator=0, last=0;
 let particles=[], shake=0, landing=0, muted=false, audio=null, fakeTriggered=false, collectedTotal=0;
 const cat={x:45,y:420,w:23,h:30,vx:0,vy:0,ground:true,face:1};
-let unlocked=0;
 let cleared={};
+let available=new Set([0,3,6]);
 let continueLevel=0,selectedWorld=0;
-function isLevelUnlocked(i){return i%8===0||!!cleared[i-1]||(i<8&&i<=unlocked);}
+function isLevelUnlocked(i){return available.has(i);}
 let lessonSeen=new Set(), lastFallWasBridge=false;
 function teach(id,message){
   if(lessonSeen.has(id))return;
   lessonSeen.add(id);$('hint').textContent=message;notice(message);
 }
 function exitIndex(){return level.exit??boards.length-1;}
-function crumbleDelay(){return level.crumbleDelay??.65;}
+function crumbleDelay(b){return b?.delay??.65;}
 const touchPointers=new Map();
 function clearInput(){
   keys.clear();jumpHeld=false;buffer=0;touchPointers.clear();
   for(const b of document.querySelectorAll('[data-key]'))b.setAttribute('aria-pressed','false');
 }
 function clampLevel(value){const n=Number(value);return Number.isFinite(n)?Math.max(0,Math.min(LEVELS.length-1,Math.floor(n))):0;}
-try { unlocked=Math.min(7,clampLevel(localStorage.getItem('tiny-trouble-level'))); muted=localStorage.getItem('tiny-trouble-muted')==='true'; const saved=JSON.parse(localStorage.getItem('tiny-trouble-cleared')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))cleared=saved;continueLevel=clampLevel(localStorage.getItem('tiny-trouble-continue')??unlocked);if(!isLevelUnlocked(continueLevel))continueLevel=unlocked; } catch {}
-function save(){try{localStorage.setItem('tiny-trouble-level',String(unlocked));localStorage.setItem('tiny-trouble-muted',String(muted));localStorage.setItem('tiny-trouble-cleared',JSON.stringify(cleared));}catch{}}
+function migrateProgress(oldUnlocked,oldCleared,oldContinue){
+  const open=new Set([0,3,6]),done={};
+  MERGE_PLAN.forEach(([,sources],i)=>{
+    if(sources.some(s=>s%8===0||(s<8&&s<=oldUnlocked)||oldCleared[s]||oldCleared[s-1]))open.add(i);
+    if(sources.every(s=>oldCleared[s])){done[i]=true;if(i%3<2)open.add(i+1);}
+  });
+  const current=MERGE_PLAN.findIndex(([,sources])=>sources.includes(Number(oldContinue)));
+  return {available:[...open],cleared:done,continueLevel:Math.max(0,current)};
+}
+try {
+  muted=localStorage.getItem('tiny-trouble-muted')==='true';
+  const raw=localStorage.getItem('tiny-trouble-long-v1');
+  const saved=raw?JSON.parse(raw):migrateProgress(Number(localStorage.getItem('tiny-trouble-level'))||0,
+    JSON.parse(localStorage.getItem('tiny-trouble-cleared')||'{}')||{},localStorage.getItem('tiny-trouble-continue')||0);
+  if(saved&&Array.isArray(saved.available)){
+    for(const i of saved.available)if(Number.isInteger(i)&&i>=0&&i<LEVELS.length)available.add(i);
+    if(saved.cleared&&typeof saved.cleared==='object')cleared=saved.cleared;
+    continueLevel=clampLevel(saved.continueLevel);if(!isLevelUnlocked(continueLevel))continueLevel=0;
+  }
+}catch{}
+function save(){try{localStorage.setItem('tiny-trouble-long-v1',JSON.stringify({available:[...available],cleared,continueLevel}));localStorage.setItem('tiny-trouble-muted',String(muted));}catch{}}
 function sound(freq=440,duration=.1,type='sine'){
   if(muted||!audio)return;
   const o=audio.createOscillator(),g=audio.createGain();
@@ -127,11 +192,11 @@ function panel(title,description,button,overline='猫的第九次散步'){
   $('secondary').hidden=state==='clear'||state==='complete';
 }
 function hud(){
-  $('chapter').textContent=(worldIndex()+1)+'-'+(levelIndex%8+1)+' / '+world().name;
+  $('chapter').textContent=(worldIndex()+1)+'-'+(levelIndex%3+1)+' / '+world().name;
   $('levelTitle').textContent=level.name;
   $('fish').textContent=fish.filter(f=>f.got).length+' / '+fish.length;
   $('deaths').textContent=deaths;
-  $('checkpoint').textContent=checkpoint<0?'◇ 尚未到达路灯':'◆ 路灯已点亮';
+  $('checkpoint').textContent=checkpoint<0?'◇ 尚未到达路灯':'◆ 路灯 '+level.checks.filter(i=>boards[i].x<=boards[checkpoint].x).length+' / '+level.checks.length;
   if(!lessonSeen.size)$('hint').textContent=level.hint;
 }
 function spawn(){
@@ -144,11 +209,13 @@ function spawn(){
 }
 function loadLevel(i){
   levelIndex=i;level=LEVELS[i];checkpoint=-1;time=0;fakeTriggered=false;lessonSeen=new Set();
+  W=level.width;
   $('app').setAttribute('data-world',world().scene);
-  boards=level.boards.map(([x,y,w],index)=>({x,y,w,h:18,fragile:level.fragile.includes(index),spring:level.spring?.includes(index),ice:level.ice?.includes(index),belt:level.belts?.[index]||0,crack:-1}));
+  boards=level.boards.map(([x,y,w],index)=>({x,y,w,h:18,...level.traits[index],crack:-1}));
+  $('hint').textContent=level.hint;
   fish=level.fish.map(([x,y])=>({x,y,got:false}));particles=[];spawn();hud();rebuildBackground();
 }
-function start(i=0){elapsed=0;deaths=0;collectedTotal=0;loadLevel(clampLevel(i));continueLevel=levelIndex;try{localStorage.setItem('tiny-trouble-continue',String(continueLevel));}catch{}state='play';$('overlay').hidden=true;$('selectPanel').hidden=true;canvas.focus({preventScroll:true});unlockAudio();}
+function start(i=0){elapsed=0;deaths=0;collectedTotal=0;loadLevel(clampLevel(i));continueLevel=levelIndex;save();state='play';$('overlay').hidden=true;$('selectPanel').hidden=true;canvas.focus({preventScroll:true});unlockAudio();}
 function burst(x,y,color,count=12){for(let i=0;i<count;i++)particles.push({x,y,vx:(Math.random()-.5)*150,vy:-Math.random()*120,life:.4+Math.random()*.3,color});}
 function die(reason='失足也没关系，马上再来。'){
   if(state!=='play'||deathDelay>0)return;
@@ -157,12 +224,12 @@ function die(reason='失足也没关系，马上再来。'){
 function finish(){
   state=levelIndex===LEVELS.length-1?'complete':'clear';collectedTotal+=fish.filter(f=>f.got).length;
   cleared[levelIndex]=true;
-  if(levelIndex<8)unlocked=Math.max(unlocked,Math.min(7,levelIndex+1));
-  continueLevel=Math.min(LEVELS.length-1,levelIndex+1);try{localStorage.setItem('tiny-trouble-continue',String(continueLevel));}catch{}
+  if(levelIndex%3<2)available.add(levelIndex+1);
+  continueLevel=Math.min(LEVELS.length-1,levelIndex+1);
   save();clearInput();sound(880,.3);
-  panel(state==='complete'?'到家了，猫猫。':levelIndex%8===7?world().name+'，走过了。':'这一页，走过了。',
+  panel(state==='complete'?'到家了，猫猫。':levelIndex%3===2?world().name+'，走过了。':'这一页，走过了。',
     '用时 '+Math.floor(elapsed)+' 秒 · 跌倒 '+deaths+' 次 · 本次收集 '+collectedTotal+' 条鱼干',
-    state==='complete'?'再走一遍 →':'下一关：'+LEVELS[levelIndex+1].name+' →',state==='complete'?'散步结束 / 三章回家路':(worldIndex()+1)+'-'+(levelIndex%8+1)+' COMPLETE');
+    state==='complete'?'再走一遍 →':'下一关：'+LEVELS[levelIndex+1].name+' →',state==='complete'?'散步结束 / 三章回家路':(worldIndex()+1)+'-'+(levelIndex%3+1)+' COMPLETE');
 }
 function pause(){if(state==='play'){state='pause';clearInput();panel('歇一会儿。','森林会等你回来。','继续散步 →');}else if(state==='pause'){state='play';$('overlay').hidden=true;canvas.focus({preventScroll:true});}}
 function overlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
@@ -179,25 +246,26 @@ function update(dt){
   if(buffer>0&&coyote>0){cat.vy=surface?.spring?-700:-530;cat.ground=false;coyote=0;buffer=0;burst(cat.x+12,cat.y+30,surface?.spring?'#83c7d1':'#ddd2b1',7);sound(surface?.spring?720:540,.09);}
   if(!jumpHeld&&cat.vy<-210)cat.vy=-210;
   cat.vy+=1200*dt;
-  const drift=cat.ground?(surface?.belt||0):(level.wind&&cat.x>320&&cat.x<730?level.wind:0);
+  const wind=level.winds.find(z=>cat.x>z.from&&cat.x<z.to);
+  const drift=cat.ground?(surface?.belt||0):(wind?.speed||0);
   cat.x=Math.max(0,Math.min(W-cat.w,cat.x+(cat.vx+drift)*dt));
   const previousBottom=cat.y+cat.h,fallSpeed=cat.vy;cat.y+=cat.vy*dt;cat.ground=false;
   for(let i=0;i<boards.length;i++){
-    const b=boards[i];if(b.crack>=0)b.crack+=dt;if(b.crack>crumbleDelay())continue;
+    const b=boards[i];if(b.crack>=0)b.crack+=dt;if(b.crack>crumbleDelay(b))continue;
     if(cat.x+cat.w>b.x+2&&cat.x<b.x+b.w-2&&previousBottom<=b.y+.5&&cat.y+cat.h>=b.y&&cat.vy>=0){
       cat.y=b.y-cat.h;cat.vy=0;cat.ground=true;cat.support=i;
       if(b.spring)teach('spring','在蓝色软垫上按住跳跃，可以跳得更高。');
       if(b.ice)teach('ice','薄霜会滑。轻按反方向，可以更快停下。');
       if(b.belt)teach('belt','箭头屋瓦会推着你走，起跳就能离开它。');
       if(fallSpeed>150){landing=.16;burst(cat.x+12,b.y,'#e4d5b6',8);sound(180,.045,'triangle');}
-      if(levelIndex===0&&i===1)teach('jump','跳得不错。前面的路灯可以歇脚。');
+      if(b.source===0&&b.local===1)teach('jump','跳得不错。前面的路灯可以歇脚。');
       if(b.fragile&&b.crack<0){
         b.crack=0;lastFallWasBridge=true;sound(95,.12,'triangle');
-        if(levelIndex===0)teach('bridge','咔嚓……木板在摇晃，往右跳！');
+        if(b.source===0)teach('bridge','咔嚓……木板在摇晃，往右跳！');
         else notice('咔嚓……这块木板要塌了！');
       }
-      if(i===level.check&&checkpoint!==i){checkpoint=i;sound(740,.2);burst(b.x+35,b.y-35,'#efc97a',20);
-        if(levelIndex===0)teach('lamp','路灯已点亮。前面的裂纹板，别停太久。');
+      if(level.checks.includes(i)&&(checkpoint<0||b.x>boards[checkpoint].x)){checkpoint=i;sound(740,.2);burst(b.x+35,b.y-35,'#efc97a',20);
+        if(b.source===0)teach('lamp','路灯已点亮。前面的裂纹板，别停太久。');
         else notice('路灯点亮，跌倒后从这里继续。');hud();}
       if(levelIndex===0&&i===level.rescue)teach('rescue','接住你了。从右边的小台阶回去就好。');
       if(i===exitIndex()&&cat.x>b.x+24){finish();return;}
@@ -205,9 +273,10 @@ function update(dt){
   }
   const hurt={x:cat.x+4,y:cat.y+4,w:cat.w-8,h:cat.h-5};
   for(const [x,y,w] of level.thorns)if(overlap(hurt,{x:x+3,y:y+3,w:w-6,h:11})){die('荆棘扎脚，跳过去就好。');return;}
-  if(level.saw){const s=level.saw,sx=s.x+Math.sin(time*1.8)*s.range;const nx=Math.max(hurt.x,Math.min(sx,hurt.x+hurt.w)),ny=Math.max(hurt.y,Math.min(s.y,hurt.y+hurt.h));if(Math.hypot(sx-nx,s.y-ny)<s.r){die('等飞果离开，再起跳。');return;}}
+  for(const s of level.saws){const sx=s.x+Math.sin(time*1.8)*s.range;const nx=Math.max(hurt.x,Math.min(sx,hurt.x+hurt.w)),ny=Math.max(hurt.y,Math.min(s.y,hurt.y+hurt.h));if(Math.hypot(sx-nx,s.y-ny)<s.r){die('等飞果离开，再起跳。');return;}}
   for(const f of fish)if(!f.got&&Math.hypot(cat.x+12-f.x,cat.y+15-f.y)<25){f.got=true;sound(1050,.12);burst(f.x,f.y,'#c49243',10);hud();}
-  if(level.fake&&!fakeTriggered&&cat.x>540){fakeTriggered=true;notice('「终点」牌子开了个玩笑。家还在右边 →');}
+  const section=level.sections.findLast(s=>cat.x>=s.x);
+  if(section&&section!==level.sections[0])teach('section-'+section.source,section.name+' · '+section.hint);
   if(cat.y>H+40)die(lastFallWasBridge?'裂纹板会塌。路灯已记住你，下次及时起跳。':'失足也没关系，马上再来。');
 }
 // Cached illustration: deterministic ink lines, layered foliage and paper flecks.
@@ -217,6 +286,7 @@ function rand(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;}
 function oval(c,x,y,rx,ry,color){c.fillStyle=color;c.beginPath();c.ellipse(x,y,rx,ry,0,0,Math.PI*2);c.fill();}
 function line(c,points,color,width=1){c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.beginPath();points.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.stroke();}
 function rebuildBackground(){
+  const W=960;
   seed=19+levelIndex;const c=bg;c.fillStyle=level.palette[0];c.fillRect(0,0,W,H);
   if(level.scene){drawChapterBackground(c);return;}
   oval(c,734,105,51,51,'#f9efcf');
@@ -246,9 +316,11 @@ function rebuildBackground(){
   for(let i=0;i<7;i++){const x=170+i*93,y=72+rand()*100;line(c,[[x-5,y],[x,y+3],[x+6,y-1]],'#828778',1);}
 }
 function paperGrain(c){
+  const W=960;
   for(let i=0;i<10000;i++){c.fillStyle=i%2?'#fff5d7':'#1d2a40';c.globalAlpha=.025+rand()*.035;c.fillRect(rand()*W,rand()*H,1.5,.7);}c.globalAlpha=1;
 }
 function drawChapterBackground(c){
+  const W=960;
   if(level.scene==='harbor'){
     // Open water, cargo sheds, masts and mooring ropes replace all forest silhouettes.
     c.fillStyle='#b5d0d5';c.fillRect(0,280,W,260);
@@ -286,8 +358,8 @@ function drawChapterBackground(c){
   paperGrain(c);
 }
 function drawBoard(b,i){
-  if(b.crack>crumbleDelay())return;
-  const urgency=b.crack<0?0:b.crack/crumbleDelay();
+  if(b.crack>crumbleDelay(b))return;
+  const urgency=b.crack<0?0:b.crack/crumbleDelay(b);
   const jitter=urgency>0?Math.sin(time*65)*urgency*2:0;
   ctx.save();ctx.translate(jitter,0);
   ctx.fillStyle=b.ice?'#a6d6e7':worldIndex()===2?'#6e789b':worldIndex()===1?'#a4b8b6':b.fragile?'#b79b75':'#b9b08a';ctx.strokeStyle=worldIndex()===2?'#3c4866':'#68634d';ctx.lineWidth=1.6;
@@ -302,11 +374,12 @@ function drawBoard(b,i){
   }
   if(b.ice)for(let x=b.x+10;x<b.x+b.w-15;x+=25)line(ctx,[[x,b.y+5],[x+12,b.y+2]],'#e6f5fc',2);
   if(b.belt){const direction=Math.sign(b.belt);for(let x=b.x+14;x<b.x+b.w-12;x+=22)line(ctx,[[x-direction*4,b.y+6],[x+direction*4,b.y+10],[x-direction*4,b.y+14]],'#f2dca9',1.8);}
-  if(i===level.check){
+  if(level.checks.includes(i)){
     line(ctx,[[b.x+40,b.y],[b.x+40,b.y-64]],'#6c6650',3);
-    ctx.fillStyle=checkpoint===i?'#eed48c':'#b0b2a0';ctx.fillRect(b.x+32,b.y-66,16,22);
+    const lit=checkpoint>=0&&b.x<=boards[checkpoint].x;
+    ctx.fillStyle=lit?'#eed48c':'#b0b2a0';ctx.fillRect(b.x+32,b.y-66,16,22);
     ctx.strokeStyle='#71694d';ctx.strokeRect(b.x+32,b.y-66,16,22);
-    if(checkpoint===i){ctx.globalAlpha=.16;oval(ctx,b.x+40,b.y-55,29,32,'#ffe0a0');ctx.globalAlpha=1;}
+    if(lit){ctx.globalAlpha=.16;oval(ctx,b.x+40,b.y-55,29,32,'#ffe0a0');ctx.globalAlpha=1;}
   }
   ctx.restore();
 }
@@ -373,17 +446,17 @@ function draw(){
   ctx.setTransform(camera.pixelWidth/camera.w,0,0,camera.pixelHeight/camera.h,0,0);
   ctx.clearRect(0,0,camera.w,camera.h);
   ctx.save();ctx.translate(-camera.x,-camera.y);
-  ctx.drawImage(background,0,0);
+  for(let tile=Math.floor(camera.x/960);tile<=Math.floor((camera.x+camera.w)/960);tile++)ctx.drawImage(background,tile*960,0);
   if(shake)ctx.translate(Math.sin(time*90)*shake,Math.cos(time*70)*shake*.5);
   // Tiny drifting pollen is decorative; collision surfaces stay perfectly stable.
   for(let i=0;i<18;i++)oval(ctx,(i*83+time*5)%W,90+(i*41)%340+Math.sin(time+i)*6,1.3,1.3,'#f7edcb');
-  if(level.wind){
-    ctx.globalAlpha=.5;const direction=Math.sign(level.wind);
+  for(const zone of level.winds){
+    ctx.globalAlpha=.5;const direction=Math.sign(zone.speed);
     for(let i=0;i<18;i++){
-      const x=330+((i*71+direction*time*32)%380+380)%380,y=215+(i%5)*50;
+      const x=zone.from+10+((i*71+direction*time*32)%380+380)%380,y=215+(i%5)*50;
       line(ctx,[[x,y],[x+direction*20,y],[x+direction*15,y-3]],'#e5f3f3',1.4);
     }ctx.globalAlpha=1;
-    ctx.fillStyle='#47718a';ctx.font='12px sans-serif';ctx.fillText(level.wind>0?'顺风区 →':'← 逆风区',340,300);
+    ctx.fillStyle='#47718a';ctx.font='12px sans-serif';ctx.fillText(zone.speed>0?'顺风区 →':'← 逆风区',zone.from+20,300);
   }
   boards.forEach(drawBoard);
   drawLessonSigns();
@@ -393,16 +466,18 @@ function draw(){
   ctx.fillStyle='#674c3f';ctx.beginPath();ctx.moveTo(end.x+28,end.y-51);ctx.lineTo(end.x+52,end.y-76);ctx.lineTo(end.x+76,end.y-51);ctx.fill();
   ctx.fillStyle='#edcc84';ctx.fillRect(end.x+44,end.y-36,17,36);oval(ctx,end.x+57,end.y-17,1.4,1.4,'#69503e');
   if(level.fake){line(ctx,[[565,391],[565,352]],'#7f7356',3);ctx.fillStyle='#efe1bb';ctx.fillRect(544,346,48,19);ctx.fillStyle='#7f7356';ctx.font='11px serif';ctx.fillText('终点？',548,360);}
-  if(level.saw){const s=level.saw,x=s.x+Math.sin(time*1.8)*s.range;line(ctx,[[690,0],[x,s.y]],'#8d8b72',1);oval(ctx,x,s.y,s.r,s.r,'#b85d4d');line(ctx,[[x-3,s.y-6],[x+1,s.y-13],[x+7,s.y-12]],'#718556',2);}
+  for(const s of level.saws){const x=s.x+Math.sin(time*1.8)*s.range;line(ctx,[[s.anchor,0],[x,s.y]],'#8d8b72',1);oval(ctx,x,s.y,s.r,s.r,'#b85d4d');line(ctx,[[x-3,s.y-6],[x+1,s.y-13],[x+7,s.y-12]],'#718556',2);}
   for(const f of fish)if(!f.got){const y=f.y+Math.sin(time*3+f.x)*3;oval(ctx,f.x,y,9,4,'#c2954e');ctx.fillStyle='#c2954e';ctx.beginPath();ctx.moveTo(f.x-7,y);ctx.lineTo(f.x-13,y-5);ctx.lineTo(f.x-13,y+5);ctx.fill();oval(ctx,f.x+5,y-1,1,1,'#66533c');}
   drawCat();
   for(const p of particles){ctx.globalAlpha=Math.max(0,p.life*1.5);oval(ctx,p.x,p.y,2,1.5,p.color);}ctx.globalAlpha=1;
   ctx.restore();
   $('timer').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(Math.floor(elapsed%60)).padStart(2,'0');
+  $('routeProgress').style.width=Math.max(0,Math.min(100,(cat.x+cat.w)/W*100))+'%';
+  $('routeMeter').setAttribute('aria-valuenow',String(Math.round(Math.max(0,Math.min(100,(cat.x+cat.w)/W*100)))));
 }
 function next(){unlockAudio();if(state==='menu')start(continueLevel);else if(state==='pause')pause();else if(state==='clear'){
   loadLevel(levelIndex+1);continueLevel=levelIndex;
-  try{localStorage.setItem('tiny-trouble-continue',String(continueLevel));}catch{}
+  save();
   state='play';$('overlay').hidden=true;canvas.focus({preventScroll:true});
 }else if(state==='complete')start(0);}
 function showLevels(chapter=worldIndex()){
@@ -421,7 +496,7 @@ function showLevels(chapter=worldIndex()){
     button.className='level-choice'+(cleared[i]?' done':'');
     button.disabled=!isLevelUnlocked(i);
     const title=document.createElement('span'),status=document.createElement('small');
-    title.textContent=(selectedWorld+1)+'-'+(i%8+1)+' '+item.name;
+    title.textContent=(selectedWorld+1)+'-'+(i%3+1)+' '+item.name;
     status.textContent=!isLevelUnlocked(i)?'未解锁':cleared[i]?'✓ 已走过':'可以出发';
     button.appendChild(title);button.appendChild(status);
     button.onclick=()=>{if(isLevelUnlocked(i))start(i);};
@@ -478,4 +553,4 @@ window.addEventListener('resize',resizeView);
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(resizeView).observe(canvas);
 function loop(t){const dt=Math.min(.05,(t-last)/1000||0);last=t;accumulator+=dt;while(accumulator>=STEP){update(STEP);accumulator-=STEP;}if(state==='play'||camera.snap)updateCamera(dt);draw();requestAnimationFrame(loop);}
 resizeView();
-loadLevel(continueLevel);updateSound();$('primary').textContent=continueLevel?'继续 '+(worldIndex()+1)+'-'+(levelIndex%8+1)+' →':'出发吧 →';$('secondary').hidden=!continueLevel;requestAnimationFrame(loop);
+loadLevel(continueLevel);updateSound();$('primary').textContent=continueLevel?'继续 '+(worldIndex()+1)+'-'+(levelIndex%3+1)+' →':'出发吧 →';$('secondary').hidden=!continueLevel;requestAnimationFrame(loop);

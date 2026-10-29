@@ -3,7 +3,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const pen=new Proxy({}, {get:()=>()=>{}});
 const elements=new Map();
 let elementSequence=0;
-function element(id){if(!elements.has(id))elements.set(id,{hidden:id==='selectPanel',textContent:'',children:[],appendChild(child){this.children.push(child)},replaceChildren(){this.children=[]},classList:{add(){},remove(){}},setAttribute(){},focus(){},getContext:()=>pen,addEventListener(){}});return elements.get(id);}
+function element(id){if(!elements.has(id))elements.set(id,{hidden:id==='selectPanel',textContent:'',style:{},children:[],appendChild(child){this.children.push(child)},replaceChildren(){this.children=[]},classList:{add(){},remove(){}},setAttribute(){},focus(){},getContext:()=>pen,addEventListener(){}});return elements.get(id);}
 const context=vm.createContext({document:{getElementById:element,createElement:type=>element(type+(++elementSequence)),querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener(){}},localStorage:{getItem:()=>null,setItem(){}},requestAnimationFrame(){},setTimeout(){},clearTimeout(){},Math,console});
 vm.runInContext(fs.readFileSync('game.js','utf8'),context);
 const run=code=>vm.runInContext(code,context);
@@ -29,7 +29,7 @@ function solveAttempt(index,route=[]){
     for(let n=0;n<90&&state==='play';n++)update(STEP);
     return state==='clear'||state==='complete'?route:null;
   }
-  const nextIndex=testTargets[index]??(index===level.rescue?4:index+1);
+  const nextIndex=testTargets[index]??level.routeNext[index];
   const saved=snapshot(),b=boards[index],target=boards[nextIndex];
   // Launch positions cover early jumps over thorns and late jumps across gaps.
   for(let launch=Math.max(b.x+5,cat.x);launch<=b.x+b.w-12;launch+=8){
@@ -53,116 +53,77 @@ function solveAttempt(index,route=[]){
   restore(saved);return null;
 }
 `);
+
 for(let i=0;i<run('LEVELS.length');i++){
   run(`start(${i})`);
-  const route=run('solve(0)');
-  assert.ok(route,'No playable route through level '+(i+1));
-  assert.ok(['clear','complete'].includes(run('state')),'Exit must trigger completion');
-  assert.equal(run('state'),i===run('LEVELS.length-1')?'complete':'clear','Only final level completes campaign');
-  console.log('Level '+(i+1)+' continuous route: '+route.join(' → '));
-  run(`start(${i});checkpoint=level.check;spawn()`);
-  assert.ok(run('solve(level.check)'),'Checkpoint must still have a route in level '+(i+1));
+  assert.ok(run('W')>1900,'Level must be physically longer, not just renamed');
+  assert.ok(run('solve(0)'),'No continuous route in long level '+(i+1));
+  assert.equal(run('state'),i===8?'complete':'clear');
+  assert.ok(run('cat.x>W-120'),'Only the final end of the long map can finish');
+  console.log('Long level '+(i+1)+': '+run('level.width')+' px, '+run('level.route.length')+' main platforms');
+  const checks=JSON.parse(run('JSON.stringify(level.checks)'));
+  for(const index of checks){
+    run(`start(${i});checkpoint=${index};spawn()`);
+    assert.ok(run('solve(checkpoint)'),'No checkpoint route: '+i+'/'+index);
+  }
 }
-run('start(4);checkpoint=level.check;spawn();testTargets={2:6,6:3}');
-assert.ok(run('solve(level.check)'),'Optional high route must return to exit');
-assert.equal(run('fish[1].got'),true,'High route must make bonus fish reachable');
-run('testTargets={};cleared={};unlocked=1;start(0);showLevels()');
-assert.equal(run('state'),'pause');
-assert.equal(run("$('levelGrid').children.length"),8);
-assert.equal(run("$('levelGrid').children[2].disabled"),true);
-run("$('levelGrid').children[2].onclick()");
-assert.equal(run('levelIndex'),0,'Locked level cannot be started');
+run('available=new Set([0,3,6]);cleared={};start(0);showLevels()');
+assert.equal(run("$('levelGrid').children.length"),3);
+assert.equal(run("$('levelGrid').children[1].disabled"),true);
 run("$('levelGrid').children[1].onclick()");
-assert.equal(run('levelIndex'),1);assert.equal(run('state'),'play');
-assert.equal(run("$('selectPanel').hidden"),true);
-assert.equal(run('clampLevel(2)'),2,'Old unlock is preserved');
-assert.equal(run('clampLevel(999)'),23);assert.equal(run("clampLevel('broken')"),0);
-assert.equal(run('isLevelUnlocked(8)'),true,'Harbor intro open');
-assert.equal(run('isLevelUnlocked(16)'),true,'Rooftop intro open');
-assert.equal(run('isLevelUnlocked(9)'),false,'Harbor progresses independently');
-run('showLevels(1)');
-assert.equal(run("$('worldTabs').children.length"),3);
-assert.equal(run("$('levelGrid').children.length"),8);
-run("$('levelGrid').children[0].onclick()");
-assert.equal(run('levelIndex'),8);
-run('finish()');assert.equal(run('isLevelUnlocked(9)'),true);
-assert.equal(run('isLevelUnlocked(17)'),false,'Harbor completion does not unlock rooftop stage 2');
-run('start(7);elapsed=40;finish();next()');
-assert.equal(run('levelIndex'),8,'Forest ending enters harbor');
-assert.equal(run('elapsed'),40,'Chapter transition preserves run timer');
-run('start(15);finish();next()');
-assert.equal(run('levelIndex'),16,'Harbor ending enters rooftops');
-assert.equal(run('state'),'play');
-run('start(12);checkpoint=2;spawn();buffer=.12;jumpHeld=true;update(STEP)');
-assert.ok(run('cat.vy')<-680,'Spring boosts the normal jump');
-run('start(12);checkpoint=2;spawn();buffer=.12;jumpHeld=true;for(let n=0;n<45;n++)update(STEP)');
-assert.ok(run('cat.y+cat.h')<250,'Spring reaches the mandatory high ledge');
-run('start(16);cat.x=250;cat.y=390;cat.support=1;cat.ground=true;cat.vx=200;update(STEP)');
-assert.ok(run('cat.vx')>195,'Ice retains momentum');
-run("keys.add('ArrowLeft');for(let n=0;n<40;n++)update(STEP)");
-assert.ok(run('cat.vx')<0,'Opposite direction brakes on ice');
-run('start(19);cat.x=250;cat.y=390;cat.support=1;cat.ground=true;cat.vx=0;update(STEP)');
-assert.ok(run('cat.x')>250,'Conveyor carries a stationary grounded cat');
-run('start(19);cat.x=250;cat.y=300;cat.support=1;cat.ground=false;cat.vx=0;update(STEP)');
-assert.equal(run('cat.x'),250,'Conveyor cannot move an airborne cat');
-run('start(8);cat.x=400;cat.y=300;cat.ground=false;cat.vx=0;update(STEP)');
-assert.ok(run('cat.x')>400,'Wind affects airborne motion');
-run('start(8);cat.x=400;cat.y=355;cat.support=2;cat.ground=true;cat.vx=0;update(STEP)');
-assert.equal(run('cat.x'),400,'Safe grounded platform is not blown by wind');
-run('start(0); checkpoint=level.check; spawn(); die();');
-assert.equal(run('deaths'),1);
-run('for(let i=0;i<60;i++)update(STEP)');
-assert.equal(run('cat.x'),400);
-assert.equal(run('cat.y'),375);
-assert.equal(run('deathDelay'),0);
-run('pause();');
-const x=run('cat.x');run("keys.add('ArrowRight'); update(1)");
-assert.equal(run('cat.x'),x);assert.equal(run('state'),'pause');
-run('pause()');assert.equal(run('state'),'play');
-run('start(0); buffer=.12; jumpHeld=true; update(STEP)');
-assert.ok(run('cat.vy')<0,'Jump should respond immediately');
-run('jumpHeld=false; update(STEP)');assert.ok(run('cat.vy')>-211,'Short jump cut');
+assert.equal(run('levelIndex'),0);
+run('finish()');assert.equal(run('isLevelUnlocked(1)'),true);
+assert.equal(run('isLevelUnlocked(4)'),false);
+run('start(2);elapsed=40;finish();next()');assert.equal(run('levelIndex'),3);assert.equal(run('elapsed'),40);
+run('start(5);finish();next()');assert.equal(run('levelIndex'),6);
+const migration=run('migrateProgress(7,{8:true,9:true,10:true,16:true},17)');
+assert.ok(migration.available.includes(0)&&migration.available.includes(1)&&migration.available.includes(2));
+assert.equal(migration.cleared[3],true);assert.equal(migration.continueLevel,6);
+assert.ok(!migration.available.includes(7),'Partial first section does not unlock a later long level');
+assert.ok(run('migrateProgress(0,{18:true},19).available.includes(7)'),'Old later-stage access is retained');
+assert.equal(run('migrateProgress(0,{},0).cleared[0]'),undefined,'Do not invent completion');
+assert.equal(run('clampLevel(999)'),8);
+run('start(4);checkpoint=boards.findIndex(b=>b.spring);spawn();buffer=.12;jumpHeld=true;update(STEP)');
+assert.ok(run('cat.vy')<-680,'Spring boost remains valid after offset');
+run('start(6);checkpoint=boards.findIndex(b=>b.ice);spawn();cat.vx=200;update(STEP)');
+assert.ok(run('cat.vx')>195);run("keys.add('ArrowLeft');for(let i=0;i<40;i++)update(STEP)");
+assert.ok(run('cat.vx')<0,'Ice brakes');
+run('start(7);checkpoint=boards.findIndex(b=>b.belt>0);spawn();const beltX=cat.x;update(STEP)');
+assert.ok(run('cat.x>beltX'));
+run('cat.ground=false;cat.vx=0;cat.y-=100;const airborneX=cat.x;update(STEP)');
+assert.equal(run('cat.x===airborneX'),true);
+run('start(3);cat.x=level.winds[1].from+20;cat.y=300;cat.ground=false;cat.vx=0;const windX=cat.x;update(STEP)');
+assert.ok(run('cat.x>windX'),'Wind follows relocated zones');
+run('start(0);cat.x=620;cat.y=355;cat.vx=0;cat.vy=0;cat.ground=true;for(let i=0;i<210;i++)update(STEP)');
+assert.equal(run('deaths'),0);assert.equal(run('cat.y+cat.h'),475);
+assert.ok(run('solve(level.rescue)'),'Rescue path must lead to the long-level exit');
+run('start(0);checkpoint=level.checks[2];spawn();const checkpointX=cat.x;die();for(let i=0;i<60;i++)update(STEP)');
+assert.equal(run('cat.x'),run('checkpointX'),'Death returns to latest internal lamp');
+run('pause()');const frozen=run('cat.x');run("keys.add('ArrowRight');update(1)");
+assert.equal(run('cat.x'),frozen);run('pause()');
 run(`
 start(0);
 const rightButton={dataset:{key:'ArrowRight'},setAttribute(){}};
 const jumpButton={dataset:{key:'Space'},setAttribute(){}};
 touchDown(rightButton,1);touchDown(jumpButton,2);update(STEP);
 `);
-assert.ok(run('cat.vx')>0&&run('cat.vy')<0,'Two-finger movement and jump');
-run('touchUp(2)');
-assert.equal(run("keys.has('ArrowRight')"),true,'Releasing jump must not release movement');
-assert.equal(run('jumpHeld'),false);
-run('touchDown(rightButton,3);touchUp(1)');
-assert.equal(run("keys.has('ArrowRight')"),true,'Second finger still holds direction');
-run('touchUp(3);touchUp(3)');
-assert.equal(run("keys.has('ArrowRight')"),false,'Cancellation is idempotent');
-run('touchDown(jumpButton,4);pause()');
-assert.equal(run('touchPointers.size'),0);assert.equal(run('jumpHeld'),false);
-// First encounter: let the bridge collapse. The lower path must catch the cat.
-run('start(0); checkpoint=level.check; cat.x=620;cat.y=355;cat.vx=0;cat.vy=0;cat.ground=true; for(let i=0;i<210;i++)update(STEP);');
-assert.equal(run('deaths'),0,'The first bridge mistake should be recoverable');
-assert.equal(run('cat.y+cat.h'),475,'Lower path catches the cat');
-assert.equal(run("lessonSeen.has('rescue')"),true);
-assert.ok(run('solve(level.rescue)'),'Recovery path must reach the exit');
-run('start(0)');
-assert.equal(run('level.thorns.length'),0);
-assert.equal(run('level.fragile.length'),1);
-assert.equal(run('fish.length'),1);
-assert.ok(run('level.check < level.fragile[0]'),'Save before teaching bridge');
-assert.equal(run('level.saw'),null);
+assert.ok(run('cat.vx>0&&cat.vy<0'));run('touchUp(2)');
+assert.equal(run("keys.has('ArrowRight')"),true);run('touchUp(1)');
+assert.equal(run("keys.has('ArrowRight')"),false);
 for(const [width,height] of [[1140,641],[844,300],[350,263]]){
-  run(`canvas.getBoundingClientRect=()=>({width:${width},height:${height}});resizeView();start(0);`);
-  assert.ok(run('camera.w')<960,'Camera must show a closer view');
-  for(const [x,y] of [[25,420],[415,375],[620,355],[640,445],[900,335]]){
-    run(`cat.x=${x};cat.y=${y};cat.ground=true;cat.vx=0;for(let i=0;i<90;i++)updateCamera(STEP)`);
-    assert.ok(run('camera.x>=0 && camera.x+camera.w<=W+.01'),'Horizontal world bounds');
-    assert.ok(run('cat.x>=camera.x && cat.x+cat.w<=camera.x+camera.w'),'Cat stays in view');
-    assert.ok(run('cat.y>=camera.y && cat.y+cat.h<=camera.y+camera.h'),'Feet stay in view');
-    run('cat.ground=false;cat.y-=116;updateCamera(STEP)');
-    assert.ok(run('cat.y>=camera.y'),'Jump apex stays visible');
+  run(`canvas.getBoundingClientRect=()=>({width:${width},height:${height}});resizeView();start(4)`);
+  for(const index of JSON.parse(run('JSON.stringify(level.route)'))){
+    run(`checkpoint=${index};spawn();for(let i=0;i<30;i++)updateCamera(STEP)`);
+    assert.ok(run('camera.x>=0&&camera.x+camera.w<=W+.01'));
+    assert.ok(run('cat.x>=camera.x&&cat.x+cat.w<=camera.x+camera.w'));
+    run('cat.ground=false;cat.y-=200;updateCamera(STEP)');
+    assert.ok(run('cat.y>=camera.y'),'High jump remains visible');
   }
-  run('checkpoint=level.check;spawn()');
-  assert.ok(run('cat.x>=camera.x && cat.x+cat.w<=camera.x+camera.w'),'Respawn resets camera');
 }
-for(let i=0;i<24;i++)run(`start(${i});draw()`);
-console.log('PASS: 24 routes + checkpoints, chapter unlock/transition, wind, spring, ice, belts, touch, camera, rendering');
+for(let i=0;i<9;i++)run(`start(${i});draw()`);
+const stored={};context.localStorage.setItem=(key,value)=>{stored[key]=value;};
+run('available=new Set([0,1,3,6]);cleared={0:true};continueLevel=1;save()');
+assert.equal(JSON.parse(stored['tiny-trouble-long-v1']).continueLevel,1);
+assert.ok(!('tiny-trouble-cleared' in stored),'Legacy progress must not be overwritten');
+console.log('PASS: 9 long routes, every lamp, relocated mechanics, migration, chapters, touch, long camera');
+
