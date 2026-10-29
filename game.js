@@ -33,16 +33,34 @@ const LEVELS = [
   { name:'桥也会打盹', hint:'木桥开始摇晃时就起跳。荆棘上方永远有路。', palette:['#e6dfcf','#b0c3bd','#739b96'],
     boards:[[0,450,170],[220,390,110],[380,330,110],[540,390,125],[712,340,100],[855,285,105]],
     fragile:[1,2,4], check:3, fish:[[265,333],[424,275],[753,285]], thorns:[[610,376,28]], saw:null },
-  { name:'门口的小把戏', hint:'红色飞果来回摆动，观察一拍再跳。真正的家在最右边。', palette:['#ead8c9','#c3b7ac','#8d9c8c'],
+  { name:'果园门口', hint:'红色飞果来回摆动，观察一拍再跳。路还在右边。', palette:['#ead8c9','#c3b7ac','#8d9c8c'],
     boards:[[0,450,170],[222,400,110],[382,352,110],[540,410,125],[714,355,105],[860,300,100]],
     fragile:[2,4], check:3, fish:[[270,340],[431,295],[764,298]], thorns:[[115,436,28]],
-    saw:{x:690,y:294,r:12,range:48}, fake:true }
+    saw:{x:690,y:294,r:12,range:48}, fake:true },
+  { name:'石阶午后', hint:'这一段不赶时间。稳稳站好，再跳到下一级。', palette:['#efe6c9','#c9ccb0','#9ba482'],
+    boards:[[0,455,170],[205,415,120],[365,355,120],[525,305,145],[710,355,105],[850,300,110]],
+    fragile:[],check:3,fish:[[260,373],[582,265]],thorns:[],saw:null },
+  { name:'鱼干的诱惑', hint:'鱼干不是通行证。想拿高处那条，可以先到路灯边歇脚。', palette:['#efdec6','#c9bc99','#a3aa80'],
+    boards:[[0,450,180],[220,425,130],[390,385,145],[575,425,125],[740,365,100],[880,325,80],[425,285,82]],
+    fragile:[],check:2,exit:5,fish:[[258,385],[468,246],[788,325]],thorns:[],saw:null },
+  { name:'雨后断桥', hint:'两座旧桥之间有稳固的落脚点。可以在那里重新调整节奏。', palette:['#dce3df','#a9c0b9','#7d9e98'],
+    boards:[[0,450,175],[215,405,125],[380,365,150],[575,405,125],[740,355,100],[875,310,85]],
+    fragile:[1,3],crumbleDelay:.85,check:2,fish:[[267,365],[624,365]],thorns:[],saw:null },
+  { name:'等一颗红果', hint:'路灯旁是安全的。先看红果摆过去，再向右起跳。', palette:['#e5d9ce','#c8b5ac','#9e9f8c'],
+    boards:[[0,450,170],[210,405,130],[380,350,145],[570,395,140],[750,340,100],[885,290,75]],
+    fragile:[],check:3,fish:[[268,365],[433,310],[795,300]],thorns:[],
+    saw:{x:730,y:318,r:13,range:48} },
+  { name:'最后一盏灯', hint:'走过旧桥，在路灯边歇一歇。最后一段，用熟悉的节奏回家。', palette:['#e6d5c6','#b3b6a6','#88998c'],
+    boards:[[0,450,170],[215,400,125],[380,350,150],[575,395,140],[755,345,100],[885,300,75]],
+    fragile:[1,4],crumbleDelay:.9,check:3,fish:[[270,360],[435,310],[807,305]],
+    thorns:[[463,336,24]],saw:null }
 ];
 let keys = new Set(), levelIndex=0, level, boards, fish, checkpoint=-1, deaths=0, elapsed=0;
 let state='menu', time=0, deathDelay=0, buffer=0, coyote=0, jumpHeld=false, accumulator=0, last=0;
 let particles=[], shake=0, landing=0, muted=false, audio=null, fakeTriggered=false, collectedTotal=0;
 const cat={x:45,y:420,w:23,h:30,vx:0,vy:0,ground:true,face:1};
 let unlocked=0;
+let cleared={};
 let lessonSeen=new Set(), lastFallWasBridge=false;
 function teach(id,message){
   if(lessonSeen.has(id))return;
@@ -55,8 +73,9 @@ function clearInput(){
   keys.clear();jumpHeld=false;buffer=0;touchPointers.clear();
   for(const b of document.querySelectorAll('[data-key]'))b.setAttribute('aria-pressed','false');
 }
-try { unlocked=Math.max(0,Math.min(2,Number(localStorage.getItem('tiny-trouble-level'))||0)); muted=localStorage.getItem('tiny-trouble-muted')==='true'; } catch {}
-function save(){try{localStorage.setItem('tiny-trouble-level',String(unlocked));localStorage.setItem('tiny-trouble-muted',String(muted));}catch{}}
+function clampLevel(value){const n=Number(value);return Number.isFinite(n)?Math.max(0,Math.min(LEVELS.length-1,Math.floor(n))):0;}
+try { unlocked=clampLevel(localStorage.getItem('tiny-trouble-level')); muted=localStorage.getItem('tiny-trouble-muted')==='true'; const saved=JSON.parse(localStorage.getItem('tiny-trouble-cleared')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))cleared=saved; } catch {}
+function save(){try{localStorage.setItem('tiny-trouble-level',String(unlocked));localStorage.setItem('tiny-trouble-muted',String(muted));localStorage.setItem('tiny-trouble-cleared',JSON.stringify(cleared));}catch{}}
 function sound(freq=440,duration=.1,type='sine'){
   if(muted||!audio)return;
   const o=audio.createOscillator(),g=audio.createGain();
@@ -73,7 +92,7 @@ function panel(title,description,button,overline='猫的第九次散步'){
   $('secondary').hidden=state==='clear'||state==='complete';
 }
 function hud(){
-  $('chapter').textContent='CHAPTER 0'+(levelIndex+1)+' / 03';
+  $('chapter').textContent='CHAPTER '+String(levelIndex+1).padStart(2,'0')+' / '+String(LEVELS.length).padStart(2,'0');
   $('levelTitle').textContent=level.name;
   $('fish').textContent=fish.filter(f=>f.got).length+' / '+fish.length;
   $('deaths').textContent=deaths;
@@ -92,18 +111,19 @@ function loadLevel(i){
   boards=level.boards.map(([x,y,w],index)=>({x,y,w,h:18,fragile:level.fragile.includes(index),crack:-1}));
   fish=level.fish.map(([x,y])=>({x,y,got:false}));particles=[];spawn();hud();rebuildBackground();
 }
-function start(i=0){elapsed=0;deaths=0;collectedTotal=0;loadLevel(i);state='play';$('overlay').hidden=true;canvas.focus({preventScroll:true});unlockAudio();}
+function start(i=0){elapsed=0;deaths=0;collectedTotal=0;loadLevel(clampLevel(i));state='play';$('overlay').hidden=true;$('selectPanel').hidden=true;canvas.focus({preventScroll:true});unlockAudio();}
 function burst(x,y,color,count=12){for(let i=0;i<count;i++)particles.push({x,y,vx:(Math.random()-.5)*150,vy:-Math.random()*120,life:.4+Math.random()*.3,color});}
 function die(reason='失足也没关系，马上再来。'){
   if(state!=='play'||deathDelay>0)return;
   deaths++;deathDelay=.42;shake=5;burst(cat.x+12,cat.y+15,'#ca7957',20);sound(130,.18,'triangle');hud();notice(reason);
 }
 function finish(){
-  state=levelIndex===2?'complete':'clear';collectedTotal+=fish.filter(f=>f.got).length;
-  unlocked=Math.max(unlocked,Math.min(2,levelIndex+1));save();keys.clear();sound(880,.3);
+  state=levelIndex===LEVELS.length-1?'complete':'clear';collectedTotal+=fish.filter(f=>f.got).length;
+  cleared[levelIndex]=true;
+  unlocked=Math.max(unlocked,Math.min(LEVELS.length-1,levelIndex+1));save();clearInput();sound(880,.3);
   panel(state==='complete'?'到家了，猫猫。':'这一页，走过了。',
     '用时 '+Math.floor(elapsed)+' 秒 · 跌倒 '+deaths+' 次 · 本次收集 '+collectedTotal+' 条鱼干',
-    state==='complete'?'再走一遍 →':'翻到下一页 →',state==='complete'?'散步结束 / 感谢你的耐心':'CHAPTER 0'+(levelIndex+1)+' COMPLETE');
+    state==='complete'?'再走一遍 →':'下一关：'+LEVELS[levelIndex+1].name+' →',state==='complete'?'散步结束 / 八段回家路':'CHAPTER '+String(levelIndex+1).padStart(2,'0')+' COMPLETE');
 }
 function pause(){if(state==='play'){state='pause';clearInput();panel('歇一会儿。','森林会等你回来。','继续散步 →');}else if(state==='pause'){state='play';$('overlay').hidden=true;canvas.focus({preventScroll:true});}}
 function overlap(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
@@ -282,11 +302,29 @@ function draw(){
   $('timer').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(Math.floor(elapsed%60)).padStart(2,'0');
 }
 function next(){unlockAudio();if(state==='menu')start(unlocked);else if(state==='pause')pause();else if(state==='clear'){loadLevel(levelIndex+1);state='play';$('overlay').hidden=true;canvas.focus({preventScroll:true});}else if(state==='complete')start(0);}
+function showLevels(){
+  if(state==='play')pause();
+  clearInput();
+  $('levelGrid').replaceChildren();
+  LEVELS.forEach((item,i)=>{
+    const button=document.createElement('button');
+    button.className='level-choice'+(cleared[i]?' done':'');
+    button.disabled=i>unlocked;
+    const title=document.createElement('span'),status=document.createElement('small');
+    title.textContent=String(i+1).padStart(2,'0')+' '+item.name;
+    status.textContent=i>unlocked?'未解锁':cleared[i]?'✓ 已走过':'可以出发';
+    button.appendChild(title);button.appendChild(status);
+    button.onclick=()=>{if(i<=unlocked)start(i);};
+    $('levelGrid').appendChild(button);
+  });
+  $('selectPanel').hidden=false;$('closeLevels').focus({preventScroll:true});
+}
 function down(code,repeat=false){
+  if(!$('selectPanel').hidden){if(code==='Escape'&&!repeat)$('selectPanel').hidden=true;return;}
   if(['Space','ArrowUp','KeyW'].includes(code)&&!repeat){
     if(state==='menu'){next();return;}if(state==='play'){buffer=.12;jumpHeld=true;unlockAudio();}
   }
-  if(code==='Escape'&&!repeat)pause();
+  if(code==='Escape'&&!repeat){if(!$('selectPanel').hidden)$('selectPanel').hidden=true;else pause();}
   if(code==='KeyR'&&!repeat&&state==='play')die('重新出发。');
   keys.add(code);
 }
@@ -296,7 +334,9 @@ window.addEventListener('keyup',e=>up(e.code));
 window.addEventListener('blur',()=>{clearInput();if(state==='play')pause();});
 window.addEventListener('orientationchange',()=>{clearInput();if(state==='play')pause();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state==='play')pause();});
-$('primary').onclick=next;$('secondary').onclick=()=>start(0);$('pause').onclick=pause;
+$('primary').onclick=next;$('secondary').onclick=()=>start(0);$('pause').onclick=()=>{if(!$('selectPanel').hidden)$('selectPanel').hidden=true;else pause();};
+$('levels').onclick=showLevels;
+$('closeLevels').onclick=()=>{$('selectPanel').hidden=true;$('levels').focus({preventScroll:true});};
 $('sound').onclick=()=>{muted=!muted;unlockAudio();save();updateSound();};
 function updateSound(){$('sound').textContent='声音：'+(muted?'关':'开');$('sound').setAttribute('aria-pressed',String(muted));}
 $('retry').onclick=()=>{if(state==='play')die('重新出发。');};

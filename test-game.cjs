@@ -2,21 +2,34 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const pen=new Proxy({}, {get:()=>()=>{}});
 const elements=new Map();
-function element(id){if(!elements.has(id))elements.set(id,{hidden:false,textContent:'',classList:{add(){},remove(){}},setAttribute(){},focus(){},getContext:()=>pen,addEventListener(){}});return elements.get(id);}
-const context=vm.createContext({document:{getElementById:element,createElement:()=>element('background'),querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener(){}},localStorage:{getItem:()=>null,setItem(){}},requestAnimationFrame(){},setTimeout(){},clearTimeout(){},Math,console});
+let elementSequence=0;
+function element(id){if(!elements.has(id))elements.set(id,{hidden:id==='selectPanel',textContent:'',children:[],appendChild(child){this.children.push(child)},replaceChildren(){this.children=[]},classList:{add(){},remove(){}},setAttribute(){},focus(){},getContext:()=>pen,addEventListener(){}});return elements.get(id);}
+const context=vm.createContext({document:{getElementById:element,createElement:type=>element(type+(++elementSequence)),querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener(){}},localStorage:{getItem:()=>null,setItem(){}},requestAnimationFrame(){},setTimeout(){},clearTimeout(){},Math,console});
 vm.runInContext(fs.readFileSync('game.js','utf8'),context);
 const run=code=>vm.runInContext(code,context);
 // Find an actual continuous route using walking and held jumps, no teleporting.
 run(`
 function snapshot(){return JSON.stringify({cat,boards,fish,checkpoint,time,state,deathDelay,deaths,elapsed,collectedTotal});}
+let testTargets={};
 function restore(text){const s=JSON.parse(text);Object.assign(cat,s.cat);boards=s.boards;fish=s.fish;checkpoint=s.checkpoint;time=s.time;state=s.state;deathDelay=s.deathDelay;deaths=s.deaths;elapsed=s.elapsed;collectedTotal=s.collectedTotal;keys.clear();buffer=0;coyote=.1;jumpHeld=false;}
 function solve(index,route=[]){
+  const saved=snapshot();
+  for(const wait of [0,30,60,90,120,180,240]){
+    restore(saved);
+    if(wait&&boards[index].fragile)break;
+    for(let n=0;n<wait&&!deathDelay;n++)update(STEP);
+    if(deathDelay)continue;
+    const result=solveAttempt(index,route);if(result)return result;
+  }
+  restore(saved);return null;
+}
+function solveAttempt(index,route=[]){
   if(index===exitIndex()){
     keys.add('ArrowRight');
     for(let n=0;n<90&&state==='play';n++)update(STEP);
     return state==='clear'||state==='complete'?route:null;
   }
-  const nextIndex=index===level.rescue?4:index+1;
+  const nextIndex=testTargets[index]??(index===level.rescue?4:index+1);
   const saved=snapshot(),b=boards[index],target=boards[nextIndex];
   // Launch positions cover early jumps over thorns and late jumps across gaps.
   for(let launch=Math.max(b.x+5,cat.x);launch<=b.x+b.w-12;launch+=8){
@@ -40,13 +53,30 @@ function solve(index,route=[]){
   restore(saved);return null;
 }
 `);
-for(let i=0;i<3;i++){
+for(let i=0;i<run('LEVELS.length');i++){
   run(`start(${i})`);
   const route=run('solve(0)');
   assert.ok(route,'No playable route through level '+(i+1));
   assert.ok(['clear','complete'].includes(run('state')),'Exit must trigger completion');
+  assert.equal(run('state'),i===run('LEVELS.length-1')?'complete':'clear','Only final level completes campaign');
   console.log('Level '+(i+1)+' continuous route: '+route.join(' → '));
+  run(`start(${i});checkpoint=level.check;spawn()`);
+  assert.ok(run('solve(level.check)'),'Checkpoint must still have a route in level '+(i+1));
 }
+run('start(4);checkpoint=level.check;spawn();testTargets={2:6,6:3}');
+assert.ok(run('solve(level.check)'),'Optional high route must return to exit');
+assert.equal(run('fish[1].got'),true,'High route must make bonus fish reachable');
+run('testTargets={};unlocked=1;start(0);showLevels()');
+assert.equal(run('state'),'pause');
+assert.equal(run("$('levelGrid').children.length"),8);
+assert.equal(run("$('levelGrid').children[2].disabled"),true);
+run("$('levelGrid').children[2].onclick()");
+assert.equal(run('levelIndex'),0,'Locked level cannot be started');
+run("$('levelGrid').children[1].onclick()");
+assert.equal(run('levelIndex'),1);assert.equal(run('state'),'play');
+assert.equal(run("$('selectPanel').hidden"),true);
+assert.equal(run('clampLevel(2)'),2,'Old unlock is preserved');
+assert.equal(run('clampLevel(999)'),7);assert.equal(run("clampLevel('broken')"),0);
 run('start(0); checkpoint=level.check; spawn(); die();');
 assert.equal(run('deaths'),1);
 run('for(let i=0;i<60;i++)update(STEP)');
