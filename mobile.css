@@ -1,4 +1,8 @@
 /* The touch strip stays outside the playfield and inside the fullscreen root. */
+/* Block selection from an ancestor/sibling too, not only from the button label.
+   Keep normal page/menu scrolling; touch-action:none belongs to controls only. */
+#app,#app *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#app button,#app canvas,#app img{-webkit-user-drag:none}
 .mobile-tip{display:none}.touch .dpad{display:flex;gap:12px}.touch button{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 .touch button[aria-pressed="true"]{background:#526e55;color:#fff8e4;transform:translateY(3px);box-shadow:none}
 canvas{touch-action:none}

@@ -544,11 +544,32 @@ function touchUp(id){
     up(b.dataset.key);b.setAttribute('aria-pressed','false');
   }
 }
+function preventGameSelection(e){if(e.cancelable)e.preventDefault();}
+function clearGameSelection(){
+  const selection=window.getSelection?.();
+  if(selection?.rangeCount)selection.removeAllRanges();
+}
+// Safari can begin selection on surrounding text even when the button itself
+// is unselectable. Cancel native selection/drag only inside the game UI.
+$('app').addEventListener('selectstart',preventGameSelection);
+$('app').addEventListener('dragstart',preventGameSelection);
 for(const b of document.querySelectorAll('[data-key]')){
-  b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);touchDown(b,e.pointerId);});
-  b.addEventListener('contextmenu',e=>e.preventDefault());
+  b.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    e.preventDefault();clearGameSelection();
+    try{b.setPointerCapture(e.pointerId);}catch{/* Window release fallback below. */}
+    touchDown(b,e.pointerId);
+  });
+  // Non-passive touch handlers suppress iOS long-press and native touch drag
+  // without preventing scrolling inside the chapter picker.
+  b.addEventListener('touchstart',e=>{preventGameSelection(e);clearGameSelection();},{passive:false});
+  b.addEventListener('touchmove',preventGameSelection,{passive:false});
+  b.addEventListener('contextmenu',preventGameSelection);
+  b.addEventListener('dragstart',preventGameSelection);
   for(const type of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(type,e=>touchUp(e.pointerId));
 }
+window.addEventListener('pointerup',e=>touchUp(e.pointerId));
+window.addEventListener('pointercancel',e=>touchUp(e.pointerId));
 window.addEventListener('resize',resizeView);
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(resizeView).observe(canvas);
 function loop(t){const dt=Math.min(.05,(t-last)/1000||0);last=t;accumulator+=dt;while(accumulator>=STEP){update(STEP);accumulator-=STEP;}if(state==='play'||camera.snap)updateCamera(dt);draw();requestAnimationFrame(loop);}

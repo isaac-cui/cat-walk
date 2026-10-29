@@ -1,10 +1,12 @@
 // Run the real game logic with a minimal DOM, without replacing its physics.
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const pen=new Proxy({}, {get:()=>()=>{}});
-const elements=new Map();
+const elements=new Map(),handlers=new Map(),windowHandlers=new Map();
 let elementSequence=0;
-function element(id){if(!elements.has(id))elements.set(id,{hidden:id==='selectPanel',textContent:'',style:{},children:[],appendChild(child){this.children.push(child)},replaceChildren(){this.children=[]},classList:{add(){},remove(){}},setAttribute(){},focus(){},getContext:()=>pen,addEventListener(){}});return elements.get(id);}
-const context=vm.createContext({document:{getElementById:element,createElement:type=>element(type+(++elementSequence)),querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener(){}},localStorage:{getItem:()=>null,setItem(){}},requestAnimationFrame(){},setTimeout(){},clearTimeout(){},Math,console});
+function element(id){if(!elements.has(id))elements.set(id,{hidden:id==='selectPanel',textContent:'',style:{},children:[],appendChild(child){this.children.push(child)},replaceChildren(){this.children=[]},classList:{add(){},remove(){}},setAttribute(){},focus(){},getContext:()=>pen,addEventListener(type,fn){handlers.set(id+':'+type,fn)}});return elements.get(id);}
+const controls=['ArrowLeft','ArrowRight','Space'].map(key=>Object.assign(element('control-'+key),{dataset:{key},setPointerCapture(){throw new Error('Capture unavailable')}}));
+let selectionCleared=false;
+const context=vm.createContext({document:{getElementById:element,createElement:type=>element(type+(++elementSequence)),querySelectorAll:()=>controls,addEventListener(){}},window:{addEventListener(type,fn){windowHandlers.set(type,fn)},getSelection:()=>({rangeCount:1,removeAllRanges(){selectionCleared=true}})},localStorage:{getItem:()=>null,setItem(){}},requestAnimationFrame(){},setTimeout(){},clearTimeout(){},Math,console});
 vm.runInContext(fs.readFileSync('game.js','utf8'),context);
 const run=code=>vm.runInContext(code,context);
 // Find an actual continuous route using walking and held jumps, no teleporting.
@@ -121,6 +123,17 @@ for(const [width,height] of [[1140,641],[844,300],[350,263]]){
   }
 }
 for(let i=0;i<9;i++)run(`start(${i});draw()`);
+run('start(0)');
+let nativePrevented=false;
+const finger={pointerId:55,pointerType:'touch',button:0,cancelable:true,preventDefault(){nativePrevented=true;}};
+handlers.get('control-ArrowRight:pointerdown')(finger);
+assert.equal(nativePrevented,true);assert.equal(selectionCleared,true);
+assert.equal(run("keys.has('ArrowRight')"),true,'Capture failure must not break input');
+windowHandlers.get('pointerup')(finger);
+assert.equal(run("keys.has('ArrowRight')"),false,'Release outside button clears input');
+for(const key of ['app:selectstart','app:dragstart','control-ArrowRight:touchstart','control-ArrowRight:touchmove','control-ArrowRight:contextmenu']){
+  nativePrevented=false;handlers.get(key)(finger);assert.equal(nativePrevented,true,key+' cancels native gesture');
+}
 const stored={};context.localStorage.setItem=(key,value)=>{stored[key]=value;};
 run('available=new Set([0,1,3,6]);cleared={0:true};continueLevel=1;save()');
 assert.equal(JSON.parse(stored['tiny-trouble-long-v1']).continueLevel,1);
