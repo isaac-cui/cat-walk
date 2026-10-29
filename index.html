@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#e8e0cc"><title>猫的第九次散步 · Tiny Trouble</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="mobile.css"></head>
+<body>
+<main id="app">
+  <header><a class="brand" href="./"><span>ฅ</span><div>猫的第九次散步<small>A LITTLE WALK, A LITTLE TROUBLE</small></div></a><nav><button id="sound" aria-pressed="false">声音：开</button><button id="pause">暂停 Esc</button><button id="fullscreen">全屏 ↗</button></nav></header>
+  <section class="book" aria-label="横版跳跃游戏">
+    <div class="hud"><div><small id="chapter">CHAPTER 01</small><strong id="levelTitle">林间来信</strong></div><div class="stats"><span>鱼干 <b id="fish">0 / 3</b></span><span>跌倒 <b id="deaths">0</b></span><span id="timer">00:00</span></div></div>
+    <div class="stage" id="stage">
+      <canvas id="game" width="960" height="540" tabindex="0" aria-label="猫猫横版闯关。方向键移动，空格跳跃，R 从检查点重试，Esc 暂停。"></canvas>
+      <div id="notice" role="status"></div>
+      <section id="overlay" class="overlay"><div class="card"><p id="overline">一本有点调皮的手绘冒险</p><h1 id="heading">猫的第九次<br>散步。</h1><p id="description">穿过森林，把自己平安送回家。<br>路会捉弄你，但每一次都能重新出发。</p><button id="primary" class="primary">出发吧 →</button><button id="secondary" class="secondary">从头开始</button><p class="legend">A D / ← → 移动 · 空格 / W 跳跃<br>轻按小跳，长按大跳 · R 重试 · Esc 暂停</p></div></section>
+    </div>
+    <div class="below"><span id="hint">裂纹木板会塌，红色荆棘别碰。鱼干是可选收集。</span><span id="checkpoint">◇ 尚未到达路灯</span></div>
+  </section>
+  <p class="mobile-tip">横过来，森林更宽阔。左手移动，右手跳跃；按住跳得更高。</p>
+  <div class="touch" aria-label="触屏控制"><div class="dpad"><button data-key="ArrowLeft" aria-label="向左" aria-pressed="false">←</button><button data-key="ArrowRight" aria-label="向右" aria-pressed="false">→</button></div><button id="retry" class="retry" aria-label="从检查点重试">重试 ↺</button><button data-key="Space" class="jump" aria-label="跳跃" aria-pressed="false">跳跃 ↑</button></div>
+  <footer><span>手绘小冒险 / 三段回家路</span><span>不急。猫总有下一次机会。</span></footer>
+</main><script src="game.js"></script>
+</body></html>

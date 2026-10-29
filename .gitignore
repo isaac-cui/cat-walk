@@ -1,0 +1,6 @@
+preview.png
+mobile-preview.png
+node_modules/
+.env
+.env.*
+*.log
