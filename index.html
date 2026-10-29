@@ -10,12 +10,12 @@
       <canvas id="game" width="960" height="540" tabindex="0" aria-label="猫猫横版闯关。方向键移动，空格跳跃，R 从检查点重试，Esc 暂停。"></canvas>
       <div id="notice" role="status"></div>
       <section id="overlay" class="overlay"><div class="card"><p id="overline">一本有点调皮的手绘冒险</p><h1 id="heading">猫的第九次<br>散步。</h1><p id="description">穿过森林，把自己平安送回家。<br>路会捉弄你，但每一次都能重新出发。</p><button id="primary" class="primary">出发吧 →</button><button id="secondary" class="secondary">从头开始</button><p class="legend">A D / ← → 移动 · 空格 / W 跳跃<br>轻按小跳，长按大跳 · R 重试 · Esc 暂停</p></div></section>
-      <section id="selectPanel" class="overlay level-picker" hidden aria-label="选择关卡"><div class="select-card"><div class="select-head"><h2>八段回家路</h2><button id="closeLevels">返回</button></div><p>选关会重新开始该关；鱼干不影响解锁。</p><div id="levelGrid" class="level-grid"></div></div></section>
+      <section id="selectPanel" class="overlay level-picker" hidden aria-label="选择关卡"><div class="select-card"><div class="select-head"><h2>三章回家路</h2><button id="closeLevels">返回</button></div><div id="worldTabs" class="world-tabs" aria-label="选择大关"></div><p>每章首关可直接体验；章内逐关解锁。选关会重新开始该关。</p><div id="levelGrid" class="level-grid"></div></div></section>
     </div>
     <div class="below"><span id="hint">裂纹木板会塌，红色荆棘别碰。鱼干是可选收集。</span><span id="checkpoint">◇ 尚未到达路灯</span></div>
   </section>
   <p class="mobile-tip">横过来，森林更宽阔。左手移动，右手跳跃；按住跳得更高。</p>
   <div class="touch" aria-label="触屏控制"><div class="dpad"><button data-key="ArrowLeft" aria-label="向左" aria-pressed="false">←</button><button data-key="ArrowRight" aria-label="向右" aria-pressed="false">→</button></div><button id="retry" class="retry" aria-label="从检查点重试">重试 ↺</button><button data-key="Space" class="jump" aria-label="跳跃" aria-pressed="false">跳跃 ↑</button></div>
-  <footer><span>手绘小冒险 / 八段回家路</span><span>不急。猫总有下一次机会。</span></footer>
+  <footer><span>手绘小冒险 / 三章 · 二十四段路</span><span>不急。猫总有下一次机会。</span></footer>
 </main><script src="game.js"></script>
 </body></html>

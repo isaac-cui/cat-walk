@@ -1,4 +1,10 @@
 .level-picker{z-index:10;overflow:auto;align-items:start;padding:16px}
+#app:has(#selectPanel:not([hidden])) .touch{visibility:hidden}
+.world-tabs{display:flex;gap:6px;margin-top:12px}.world-tabs button{flex:1;font-size:12px;padding:8px 4px}.world-tabs button[aria-pressed="true"]{background:#526e55;color:#fff8e4}
+[data-world="harbor"]{--green:#477d94;--orange:#577c8c}
+[data-world="rooftop"]{--green:#716d9a;--orange:#a99479}
+[data-world="rooftop"] .book{background:#e3dfdf}
+[data-world="harbor"] .book{background:#e8eeeb}
 .select-card{width:min(600px,100%);margin:auto;background:#f7f0de;border:1px solid #b2a382;border-radius:8px;padding:20px;box-shadow:4px 6px 0 #655b3820}
 .select-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.select-head h2{font-size:23px;font-weight:normal;margin:0}.select-card p{font-size:12px;color:#7a7869}
 .level-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
