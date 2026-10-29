@@ -4,9 +4,10 @@ const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
 const $ = id => document.getElementById(id);
 const W = 960, H = 540, STEP = 1 / 120;
 const LEVELS = [
-  { name:'林间来信', hint:'裂纹木板撑不住太久。路灯会记住你的脚步。', palette:['#eee6c9','#bacbb0','#7a9d85'],
-    boards:[[0,450,180],[238,417,122],[414,375,118],[582,420,135],[766,354,90],[880,310,80]],
-    fragile:[1], check:3, fish:[[292,365],[466,320],[807,300]], thorns:[[122,436,30]], saw:null },
+  { name:'慢慢学会出发', hint:'先试着跳过前面的小缺口。轻按小跳，按住大跳。', palette:['#eee6c9','#bacbb0','#7a9d85'],
+    boards:[[0,450,180],[215,430,125],[375,405,170],[585,385,115],[735,420,85],[860,365,100],[555,475,165]],
+    fragile:[3], crumbleDelay:1.15, check:2, exit:5, rescue:6,
+    fish:[[905,323]], thorns:[], saw:null },
   { name:'桥也会打盹', hint:'木桥开始摇晃时就起跳。荆棘上方永远有路。', palette:['#e6dfcf','#b0c3bd','#739b96'],
     boards:[[0,450,170],[220,390,110],[380,330,110],[540,390,125],[712,340,100],[855,285,105]],
     fragile:[1,2,4], check:3, fish:[[265,333],[424,275],[753,285]], thorns:[[610,376,28]], saw:null },
@@ -20,6 +21,13 @@ let state='menu', time=0, deathDelay=0, buffer=0, coyote=0, jumpHeld=false, accu
 let particles=[], shake=0, landing=0, muted=false, audio=null, fakeTriggered=false, collectedTotal=0;
 const cat={x:45,y:420,w:23,h:30,vx:0,vy:0,ground:true,face:1};
 let unlocked=0;
+let lessonSeen=new Set(), lastFallWasBridge=false;
+function teach(id,message){
+  if(lessonSeen.has(id))return;
+  lessonSeen.add(id);$('hint').textContent=message;notice(message);
+}
+function exitIndex(){return level.exit??boards.length-1;}
+function crumbleDelay(){return level.crumbleDelay??.65;}
 const touchPointers=new Map();
 function clearInput(){
   keys.clear();jumpHeld=false;buffer=0;touchPointers.clear();
@@ -45,19 +53,19 @@ function panel(title,description,button,overline='猫的第九次散步'){
 function hud(){
   $('chapter').textContent='CHAPTER 0'+(levelIndex+1)+' / 03';
   $('levelTitle').textContent=level.name;
-  $('fish').textContent=fish.filter(f=>f.got).length+' / 3';
+  $('fish').textContent=fish.filter(f=>f.got).length+' / '+fish.length;
   $('deaths').textContent=deaths;
   $('checkpoint').textContent=checkpoint<0?'◇ 尚未到达路灯':'◆ 路灯已点亮';
-  $('hint').textContent=level.hint;
+  if(!lessonSeen.size)$('hint').textContent=level.hint;
 }
 function spawn(){
   const p=boards[checkpoint<0?0:checkpoint];
   Object.assign(cat,{x:p.x+25,y:p.y-cat.h,vx:0,vy:0,ground:true,face:1});
   for(const b of boards)b.crack=-1;
-  clearInput();coyote=.1;deathDelay=0;landing=0;
+  clearInput();coyote=.1;deathDelay=0;landing=0;lastFallWasBridge=false;
 }
 function loadLevel(i){
-  levelIndex=i;level=LEVELS[i];checkpoint=-1;time=0;fakeTriggered=false;
+  levelIndex=i;level=LEVELS[i];checkpoint=-1;time=0;fakeTriggered=false;lessonSeen=new Set();
   boards=level.boards.map(([x,y,w],index)=>({x,y,w,h:18,fragile:level.fragile.includes(index),crack:-1}));
   fish=level.fish.map(([x,y])=>({x,y,got:false}));particles=[];spawn();hud();rebuildBackground();
 }
@@ -91,13 +99,21 @@ function update(dt){
   cat.x=Math.max(0,Math.min(W-cat.w,cat.x+cat.vx*dt));
   const previousBottom=cat.y+cat.h,fallSpeed=cat.vy;cat.y+=cat.vy*dt;cat.ground=false;
   for(let i=0;i<boards.length;i++){
-    const b=boards[i];if(b.crack>=0)b.crack+=dt;if(b.crack>.65)continue;
+    const b=boards[i];if(b.crack>=0)b.crack+=dt;if(b.crack>crumbleDelay())continue;
     if(cat.x+cat.w>b.x+2&&cat.x<b.x+b.w-2&&previousBottom<=b.y+.5&&cat.y+cat.h>=b.y&&cat.vy>=0){
       cat.y=b.y-cat.h;cat.vy=0;cat.ground=true;
       if(fallSpeed>150){landing=.16;burst(cat.x+12,b.y,'#e4d5b6',8);sound(180,.045,'triangle');}
-      if(b.fragile&&b.crack<0){b.crack=0;notice('咔嚓……这块木板要塌了！');}
-      if(i===level.check&&cat.x<b.x+65&&checkpoint!==i){checkpoint=i;sound(740,.2);burst(b.x+35,b.y-35,'#efc97a',20);notice('路灯点亮，跌倒后从这里继续。');hud();}
-      if(i===boards.length-1&&cat.x>b.x+24){finish();return;}
+      if(levelIndex===0&&i===1)teach('jump','跳得不错。前面的路灯可以歇脚。');
+      if(b.fragile&&b.crack<0){
+        b.crack=0;lastFallWasBridge=true;sound(95,.12,'triangle');
+        if(levelIndex===0)teach('bridge','咔嚓……木板在摇晃，往右跳！');
+        else notice('咔嚓……这块木板要塌了！');
+      }
+      if(i===level.check&&checkpoint!==i){checkpoint=i;sound(740,.2);burst(b.x+35,b.y-35,'#efc97a',20);
+        if(levelIndex===0)teach('lamp','路灯已点亮。前面的裂纹板，别停太久。');
+        else notice('路灯点亮，跌倒后从这里继续。');hud();}
+      if(levelIndex===0&&i===level.rescue)teach('rescue','接住你了。从右边的小台阶回去就好。');
+      if(i===exitIndex()&&cat.x>b.x+24){finish();return;}
     }
   }
   const hurt={x:cat.x+4,y:cat.y+4,w:cat.w-8,h:cat.h-5};
@@ -105,7 +121,7 @@ function update(dt){
   if(level.saw){const s=level.saw,sx=s.x+Math.sin(time*1.8)*s.range;const nx=Math.max(hurt.x,Math.min(sx,hurt.x+hurt.w)),ny=Math.max(hurt.y,Math.min(s.y,hurt.y+hurt.h));if(Math.hypot(sx-nx,s.y-ny)<s.r){die('等飞果离开，再起跳。');return;}}
   for(const f of fish)if(!f.got&&Math.hypot(cat.x+12-f.x,cat.y+15-f.y)<25){f.got=true;sound(1050,.12);burst(f.x,f.y,'#c49243',10);hud();}
   if(level.fake&&!fakeTriggered&&cat.x>540){fakeTriggered=true;notice('「终点」牌子开了个玩笑。家还在右边 →');}
-  if(cat.y>H+40)die();
+  if(cat.y>H+40)die(lastFallWasBridge?'裂纹板会塌。路灯已记住你，下次及时起跳。':'失足也没关系，马上再来。');
 }
 // Cached illustration: deterministic ink lines, layered foliage and paper flecks.
 const background=document.createElement('canvas');background.width=W;background.height=H;
@@ -142,8 +158,9 @@ function rebuildBackground(){
   for(let i=0;i<7;i++){const x=170+i*93,y=72+rand()*100;line(c,[[x-5,y],[x,y+3],[x+6,y-1]],'#828778',1);}
 }
 function drawBoard(b,i){
-  if(b.crack>.65)return;
-  const jitter=b.crack>0?Math.sin(time*65)*b.crack*2:0;
+  if(b.crack>crumbleDelay())return;
+  const urgency=b.crack<0?0:b.crack/crumbleDelay();
+  const jitter=urgency>0?Math.sin(time*65)*urgency*2:0;
   ctx.save();ctx.translate(jitter,0);
   ctx.fillStyle=b.fragile?'#b79b75':'#b9b08a';ctx.strokeStyle='#68634d';ctx.lineWidth=1.6;
   ctx.beginPath();ctx.moveTo(b.x,b.y+1);ctx.lineTo(b.x+b.w,b.y);ctx.lineTo(b.x+b.w-4,b.y+19);ctx.lineTo(b.x+5,b.y+22);ctx.closePath();ctx.fill();ctx.stroke();
@@ -158,6 +175,16 @@ function drawBoard(b,i){
     if(checkpoint===i){ctx.globalAlpha=.16;oval(ctx,b.x+40,b.y-55,29,32,'#ffe0a0');ctx.globalAlpha=1;}
   }
   ctx.restore();
+}
+function drawLessonSigns(){
+  if(levelIndex!==0)return;
+  // Small world-space prompts stay near the relevant action; no tutorial modal.
+  ctx.fillStyle='#5b6650';ctx.font='13px "Microsoft YaHei",sans-serif';ctx.textAlign='center';
+  ctx.fillText('跳一下 →',157,400);
+  ctx.fillText('歇歇脚',453,318);
+  ctx.fillStyle='#936a4c';ctx.fillText('有裂纹…',641,340);
+  ctx.fillStyle='#65745b';ctx.font='11px "Microsoft YaHei",sans-serif';
+  ctx.fillText('小路也能回家 →',635,510);ctx.textAlign='start';
 }
 function drawCat(){
   if(deathDelay>0)return;
@@ -180,8 +207,9 @@ function draw(){
   // Tiny drifting pollen is decorative; collision surfaces stay perfectly stable.
   for(let i=0;i<18;i++)oval(ctx,(i*83+time*5)%W,90+(i*41)%340+Math.sin(time+i)*6,1.3,1.3,'#f7edcb');
   boards.forEach(drawBoard);
+  drawLessonSigns();
   for(const [x,y,w] of level.thorns){for(let j=0;j<w;j+=10){ctx.fillStyle='#a76050';ctx.beginPath();ctx.moveTo(x+j,y+14);ctx.quadraticCurveTo(x+j+3,y+3,x+j+7,y);ctx.lineTo(x+j+10,y+14);ctx.fill();line(ctx,[[x+j+3,y+12],[x+j+7,y+3]],'#6b493f');}}
-  const end=boards[boards.length-1];
+  const end=boards[exitIndex()];
   ctx.fillStyle='#957b5a';ctx.fillRect(end.x+36,end.y-53,32,53);
   ctx.fillStyle='#674c3f';ctx.beginPath();ctx.moveTo(end.x+28,end.y-51);ctx.lineTo(end.x+52,end.y-76);ctx.lineTo(end.x+76,end.y-51);ctx.fill();
   ctx.fillStyle='#edcc84';ctx.fillRect(end.x+44,end.y-36,17,36);oval(ctx,end.x+57,end.y-17,1.4,1.4,'#69503e');
