@@ -211,17 +211,51 @@ function drawLessonSigns(){
 }
 function drawCat(){
   if(deathDelay>0)return;
-  const walking=cat.ground&&Math.abs(cat.vx)>20,cycle=Math.sin(time*23),squash=landing;
-  ctx.save();ctx.translate(cat.x+12,cat.y+30);ctx.scale(cat.face*(1+squash),1-squash);
-  ctx.strokeStyle='#69513e';ctx.lineWidth=2;ctx.lineJoin='round';
-  ctx.beginPath();ctx.moveTo(-8,-7);ctx.bezierCurveTo(-24,-6,-23,-21,-18,-20+Math.sin(time*4)*3);ctx.stroke();
-  ctx.fillStyle='#cf9368';ctx.beginPath();ctx.moveTo(-10,-5);ctx.quadraticCurveTo(-13,-12,-10,-21);ctx.lineTo(-10,-31);ctx.lineTo(-3,-26);ctx.quadraticCurveTo(2,-28,6,-26);ctx.lineTo(12,-31);ctx.lineTo(11,-18);ctx.quadraticCurveTo(14,-5,8,-3);ctx.closePath();ctx.fill();ctx.stroke();
-  oval(ctx,2,-12,7,8,'#f2dfb5');
-  line(ctx,[[-8,-23],[-5,-22]],'#a76f50',2);line(ctx,[[-8,-18],[-5,-17]],'#a76f50',2);
-  const blink=Math.sin(time*.9)>.996;ctx.fillStyle='#493e33';ctx.fillRect(-3,-22,2,blink?1:3);ctx.fillRect(6,-22,2,blink?1:3);
-  line(ctx,[[1,-17],[3,-16],[4,-17]],'#70523d',1);
-  line(ctx,[[-4,-15],[-13,-17]],'#70523d',.7);line(ctx,[[6,-15],[15,-17]],'#70523d',.7);
-  oval(ctx,-6,-2+(walking?cycle*2:0),4,2.5,'#825c43');oval(ctx,7,-2-(walking?cycle*2:0),4,2.5,'#825c43');
+  // Rounded kitten silhouette. Artwork is independent of the 23 x 30 hitbox.
+  const walking=cat.ground&&Math.abs(cat.vx)>20,cycle=Math.sin(time*20);
+  const bounce=walking?Math.abs(cycle)*.65:cat.ground?Math.sin(time*2.5)*.22:0;
+  const stretch=!cat.ground&&cat.vy<0?.035:0;
+  ctx.save();ctx.translate(cat.x+11.5,cat.y+30);
+  ctx.scale(cat.face*(1+landing-stretch),1-landing+stretch);
+  ctx.translate(0,-bounce);ctx.lineCap='round';ctx.lineJoin='round';
+  // A soft, curling tail with a cream tip.
+  const tail=Math.sin(time*(walking?8:3))*(walking?2:1.2);
+  ctx.beginPath();ctx.moveTo(-6,-7);ctx.bezierCurveTo(-17,-5,-19,-15+tail,-14,-17+tail);
+  ctx.strokeStyle='#8e6248';ctx.lineWidth=5;ctx.stroke();
+  ctx.strokeStyle='#dfa36e';ctx.lineWidth=3.4;ctx.stroke();
+  line(ctx,[[-15.7,-15.5+tail],[-14,-17+tail]],'#fff0d1',3);
+  // Pear-shaped body and tucked, alternating paws.
+  oval(ctx,0,-7.5,7.8,8,'#dba071');ctx.strokeStyle='#967151';ctx.lineWidth=.8;ctx.stroke();
+  oval(ctx,1,-6,4.7,5.7,'#fff0d7');
+  const step=walking?cycle*1.1:0;
+  oval(ctx,-4.6,-1.6+step,3.5,2.2,'#f8e6c7');
+  oval(ctx,4.6,-1.6-step,3.5,2.2,'#f8e6c7');
+  // Broad cheeks and short rounded ears replace the upright box silhouette.
+  ctx.fillStyle='#e6ae78';ctx.beginPath();
+  ctx.moveTo(-10,-21);ctx.quadraticCurveTo(-11,-32,-7.5,-30);
+  ctx.lineTo(-3.7,-26);ctx.quadraticCurveTo(0,-27.3,4,-26);
+  ctx.quadraticCurveTo(10,-33,10.3,-28);ctx.lineTo(10,-21);
+  ctx.bezierCurveTo(15,-12,7,-10,0,-10);ctx.bezierCurveTo(-9,-10,-14,-13,-10,-21);
+  ctx.closePath();ctx.fill();ctx.strokeStyle='#967151';ctx.lineWidth=.85;ctx.stroke();
+  ctx.fillStyle='#d78e83';ctx.beginPath();ctx.moveTo(-8.2,-27.9);ctx.lineTo(-7.9,-23.8);ctx.lineTo(-5.1,-25);ctx.fill();
+  ctx.beginPath();ctx.moveTo(8.5,-28);ctx.lineTo(5.7,-25);ctx.lineTo(8.5,-23.9);ctx.fill();
+  // Cream muzzle, subtle tabby forehead and rosy cheeks.
+  oval(ctx,0,-14.7,8.5,4.5,'#fff0d7');
+  line(ctx,[[-2,-25],[-1.4,-22.8]],'#bf8259',1.1);
+  line(ctx,[[1.8,-25],[1.2,-22.8]],'#bf8259',1.1);
+  oval(ctx,-8,-17,2,1,'#e6a294');oval(ctx,8,-17,2,1,'#e6a294');
+  const blink=time%4.6>4.44,look=walking?.6:.2;
+  for(const ex of [-4.6,4.6]){
+    if(blink)line(ctx,[[ex-1.3,-19],[ex,-18.5],[ex+1.3,-19]],'#574b3e',.9);
+    else{
+      oval(ctx,ex+look,-19,1.75,2.15,'#51483b');
+      oval(ctx,ex+look-.55,-19.8,.6,.7,'#fffae9');
+    }
+  }
+  ctx.fillStyle='#bd827c';ctx.beginPath();ctx.moveTo(-1.4,-16);ctx.quadraticCurveTo(0,-16.8,1.4,-16);ctx.lineTo(0,-14.8);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#977057';ctx.lineWidth=.6;ctx.beginPath();ctx.moveTo(0,-14.8);ctx.quadraticCurveTo(-1,-13.2,-2.2,-14);ctx.moveTo(0,-14.8);ctx.quadraticCurveTo(1,-13.2,2.2,-14);ctx.stroke();
+  line(ctx,[[-8.4,-14.8],[-12.3,-15.4]],'#b18b68',.55);
+  line(ctx,[[8.4,-14.8],[12.3,-15.4]],'#b18b68',.55);
   ctx.restore();
 }
 function draw(){
